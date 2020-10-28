@@ -1,0 +1,211 @@
+### load packages
+
+library(ape)
+library(phangorn)
+library(vcfR)
+library(adegenet)
+
+### hybrid simulation with 3134, 3135, and 3137 specified as diverging from common hybridization event
+
+### start loop (we repeat simulation and tree plotting 100 times to assess repeatability)
+
+for (i in 1:100){
+
+### read in VCF
+
+obs.pool.vcf <- read.vcfR("obs.pool.vcf.gz")
+obs.pool <- vcfR2genind(obs.pool.vcf, sep="/")
+
+### label individuals  and assign populations Mato Grosso (MT) and Mato Grosso do Sul (MS)
+
+indNames(obs.pool) <- c("2569","2664","2665","2666","2668","2669","2671","2702","2935","3134","3135","3136","3137","3138","3209","3210","3212","3214","3219","3223","3224","3225","3227","2688")
+
+pop(obs.pool) <- c(rep("MS",9), "HYB", "HYB", "MT", "HYB", "MT", "MT", "HYB", "MT", "MT", "MT", "HYB", "HYB", "MT", "MT", "MS")
+temp <- seppop(obs.pool)
+
+MT <- temp$MT
+MS <- temp$MS
+
+#### generate first-gen (F1) hybrid (putative hybrid progenitor of samples 3134, 3135 and 3137)
+
+F1 <- hybridize(MT, MS, n=1, hyb.label = "F1.")
+
+#### generate second-gen (F2) hybrid, i.e., offpsring of F1 hybrid x F1 hybrid mating event (putative progenitor of sample 3210)
+
+Fx <- hybridize(MT, MS, n=1, hyb.label = "F1.")
+F2 <- hybridize(Fx, Fx, n=1, hyb.label = "F2.")
+
+#### generate two backcrosses; i.e., offpsring of F1 hybrid x MT progenitor mating event (putative progenitors of samples 3223 and 3224)
+
+F1.backcross <- hybridize(MT, F1, n=2, hyb.label = "F1.backcross.")
+
+### convert to dataframes
+
+F1a.df <- genind2df(F2, sep='/')
+F1b.df <- genind2df(F1, sep='/')
+F1c.df <- genind2df(F1, sep='/')
+F1.backcross.df <- genind2df(F1.backcross, sep='/')
+MS.df <- genind2df(MS, sep='/')
+MT.df <- genind2df(MT, sep='/')
+
+#### let drift occur after the double-hybridization event that led to the putative hybrid progenitor of sample 3210
+## specifically, add 100 sites to polymorphism list, of which 30 randomly undergo single-nucl. substitution
+## (30 is arbitrary; similar end-results using more or less)
+
+poly <- length(F1a.df)
+r <- sample((poly+1):(poly+100), 30, replace=F)
+F1a.df[(poly+1):(poly+100)] <- "0/0"
+F1a.df[r] <- "0/1"
+
+### let same level of drift occur for the hybrid progenitor of 3137...
+
+r <- sample((poly+1):(poly+100), 30, replace=F)
+F1b.df[(poly+1):(poly+100)] <- "0/0"
+F1b.df[r] <- "0/1"
+
+### let same level of drift occure for the hybrid progenitor of 3134 and 3135
+### let MRCA of 3134 and 3135 begin to diverge after the 10th of these 30 SNPs...
+### (10 is also arbitrary; similar end-results using more or less)
+
+r <- sample((poly+1):(poly+100), 10, replace=F)
+F1c.df[(poly+1):(poly+100)] <- "0/0"
+F1c.df[r] <- "0/1"
+
+F1d.df <- F1c.df
+
+r <- sample((poly+1):(poly+100), 20, replace=F)
+F1c.df[r] <- "0/1"
+
+r <- sample((poly+1):(poly+100), 20, replace=F)
+F1d.df[r] <- "0/1"
+
+### let same level of drift occur for the backcrossed progenitors of 3223 and 3224...
+
+r <- sample((poly+1):(poly+100), 30, replace=F)
+F1.backcross.df[(poly+1):(poly+100)] <- "0/0"
+F1.backcross.df[1,r] <- "0/1"
+F1.backcross.df[2,r] <- "0/1"
+
+### MT and MS source populations do not need drift because they represent the present
+### but they do need 100 "0/0" sites to be added for compatibility
+
+MT.df[(poly+1):(poly+100)] <- "0/0"
+
+MS.df[(poly+1):(poly+100)] <- "0/0"
+
+### convert back to genind
+
+F1a <- df2genind(F1a.df, sep='/')
+F1b <- df2genind(F1b.df, sep='/')
+F1c <- df2genind(F1c.df, sep='/')
+F1d <- df2genind(F1d.df, sep='/')
+F1.backcross <- df2genind(F1.backcross.df, sep='/')
+MS <- df2genind(MS.df, sep='/')
+MT <- df2genind(MT.df, sep='/')
+
+### add labels describing crosses
+
+indNames(F1a) <- "(MT x MS) x (MT x MS)"
+indNames(F1b) <- "MT x MS (a)"
+indNames(F1c) <- "MT x MS (c)"
+indNames(F1d) <- "MT x MS (b)"
+indNames(F1.backcross) <- c("(MT x MS) x MT (a)", "(MT x MS) x MT (b)")
+
+### pool for tree
+
+sim.pool <- repool(F1a,F1b,F1c,F1d,MT,MS,F1.backcross)
+
+### print pdfs
+
+pdf(paste(i,'_simtree_with_drift.pdf', sep = ''), width=20, height=9)
+
+par(mfrow=c(1,2))
+
+plot(midpoint(nj(dist(sim.pool))), no.margin=T, cex=1.8, edge.width = 1.8, label.offset=0.5, tip.color=c(rep("blue",4),rep("black",18),rep("blue",2)))
+plot(midpoint(nj(dist(obs.pool))), no.margin=T, cex=1.8, edge.width = 1.8, label.offset=0.5, tip.color=c(rep("black",9),rep("dark green",2),"black","dark green", rep("black",2), "dark green", rep("black",3), rep("dark green",2), rep("black", 2)))
+
+dev.off()} ### end loop
+
+###################################################################
+###################################################################
+###################################################################
+###################################################################
+
+### hybrid simulation without specifying divergence between 3134, 3135, and 3137 (represented as single node)
+
+### start loop (we repeat simulation and tree plotting 100 times to assess repeatability)
+
+for (i in 1:100){
+
+### read in VCF
+  
+obs.pool.vcf <- read.vcfR("obs.pool.vcf.gz")
+obs.pool <- vcfR2genind(obs.pool.vcf, sep="/")
+  
+### label individuals  and assign populations Mato Grosso (MT) and Mato Grosso do Sul (MS)
+  
+indNames(obs.pool) <- c("2569","2664","2665","2666","2668","2669","2671","2702","2935","3134","3135","3136","3137","3138","3209","3210","3212","3214","3219","3223","3224","3225","3227","2688")
+  
+pop(obs.pool) <- c(rep("MS",9), "HYB", "HYB", "MT", "HYB", "MT", "MT", "HYB", "MT", "MT", "MT", "HYB", "HYB", "MT", "MT", "MS")
+temp <- seppop(obs.pool)
+  
+MT <- temp$MT
+MS <- temp$MS
+  
+#### generate first-gen (F1) hybrid (putative hybrid progenitor of samples 3134, 3135 and 3137)
+  
+F1 <- hybridize(MT, MS, n=1, hyb.label = "F1.")
+  
+#### generate second-gen (F2) hybrid, i.e., offpsring of F1 hybrid x F1 hybrid mating event (putative progenitor of sample 3210)
+  
+Fx <- hybridize(MT, MS, n=1, hyb.label = "F1.")
+F2 <- hybridize(Fx, Fx, n=1, hyb.label = "F2.")
+  
+#### generate two backcrosses; i.e., offpsring of F1 hybrid x MT progenitor mating event (putative progenitors of samples 3223 and 3224)
+  
+F1.backcross <- hybridize(MT, F1, n=2, hyb.label = "F1.backcross.")
+  
+### convert to dataframes
+  
+F1a.df <- genind2df(F2, sep='/')
+F1b.df <- genind2df(F1, sep='/')
+F1c.df <- genind2df(F1, sep='/')
+F1d.df <- genind2df(F1, sep='/')
+F1.backcross.df <- genind2df(F1.backcross, sep='/')
+MS.df <- genind2df(MS, sep='/')
+MT.df <- genind2df(MT, sep='/')
+  
+#### drift generation from previous section: removed!
+
+### convert back to genind
+  
+F1a <- df2genind(F1a.df, sep='/')
+F1b <- df2genind(F1b.df, sep='/')
+F1c <- df2genind(F1c.df, sep='/')
+F1d <- df2genind(F1d.df, sep='/')
+F1.backcross <- df2genind(F1.backcross.df, sep='/')
+MS <- df2genind(MS.df, sep='/')
+MT <- df2genind(MT.df, sep='/')
+  
+### add labels describing crosses
+ 
+indNames(F1a) <- "(MT x MS) x (MT x MS)"
+indNames(F1b) <- "MT x MS (a)"
+indNames(F1c) <- "MT x MS (c)"
+indNames(F1d) <- "MT x MS (b)"
+indNames(F1.backcross) <- c("(MT x MS) x MT (a)", "(MT x MS) x MT (b)")
+  
+### pool for tree
+  
+sim.pool <- repool(F1a,F1b,F1c,F1d,MT,MS,F1.backcross)
+  
+### print pdfs
+  
+pdf(paste(i,'_simtree_without_drift.pdf', sep = ''), width=20, height=9)
+  
+par(mfrow=c(1,2))
+  
+plot(midpoint(nj(dist(sim.pool))), no.margin=T, cex=1.8, edge.width = 1.8, label.offset=0.5, tip.color=c(rep("blue",4),rep("black",18),rep("blue",2)))
+plot(midpoint(nj(dist(obs.pool))), no.margin=T, cex=1.8, edge.width = 1.8, label.offset=0.5, tip.color=c(rep("black",9),rep("dark green",2),"black","dark green", rep("black",2), "dark green", rep("black",3), rep("dark green",2), rep("black", 2)))
+  
+dev.off()} ### end loop

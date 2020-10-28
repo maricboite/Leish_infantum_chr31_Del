@@ -1,0 +1,111 @@
+### load packages
+
+library(data.table)
+library(stringr)
+library(ape)
+library(phangorn)
+library(vegan)
+library(picante)
+
+### read in VCF
+
+linf <- fread('nwdel_nmd.012', data.table = F)[,-1]
+rownames(linf) <- read.table('nwdel_nmd.012.indv')[,1]
+positions <- read.table('nwdel_nmd.012.pos')
+colnames(linf) <- gsub(' ','',apply(positions, 1, function(x) paste(x, collapse='_')))
+
+### read in sample names (V1), read-length (V2), deletion start (V3) and stop sites (V4)
+
+x <- read.table("rounded_RL_SITES.txt", header=F)
+x$V2 <- as.factor(x$V2) ### (rounded to three levels: 100, 125 and 150 bp)
+x$V3 <- as.numeric(x$V3)
+x$V4 <- as.numeric(x$V4)
+
+### create separate dataframes
+
+START <- data.frame(x$V3) 
+rownames(START) <- x$V1
+
+STOP <- data.frame(x$V4) 
+rownames(STOP) <- x$V1
+
+### run Mantel test stratified by read-length
+
+mantel(ydis=dist(START), xdis=dist(linf), strata=as.factor(x$V2)) ### not significant (p ~ 0.07)
+mantel(ydis=dist(STOP), xdis=dist(linf), strata=as.factor(x$V2))  ### significant (p ~ 0.001)
+
+### repeat without data from Teixeira et al. 2017 because not available paired-end
+
+linf_notex <- subset(linf, !grepl("VL|CL|Ah", row.names(linf)))
+
+START_notex <- subset(START, !grepl("VL|CL|Ah", rownames(START)))
+STOP_notex <- subset(STOP, !grepl("VL|CL|Ah", rownames(STOP)))
+x_notex <- subset(x, !grepl("VL|CL|Ah", x$V1))
+
+mantel(ydis=dist(START_notex), xdis=dist(linf_notex), strata=as.factor(x_notex$V2)) ### not significant (p ~ 0.131)
+mantel(ydis=dist(STOP_notex), xdis=dist(linf_notex), strata=as.factor(x_notex$V2)) ### significant (p ~ 0.038)
+
+### alternative approach: test for phylogenetic signal in residuals of linear regression
+### explanatory variables of linear regression are read-length and average read-depth
+### response variables are start and stop sites (we create a separate model for each)
+
+### read in average read-depths
+
+d <- read.table("depths.txt", header=F)
+
+### create simple linear models for deletion start (lm1) and stop sites (lm2)
+### explanatory variables are read-length and average read-depth
+
+lm1 <- lm(x$V3 ~ x$V2 + d$V2)
+lm2 <- lm(x$V4 ~ x$V2 + d$V2)
+
+resid1 <- data.frame(lm1$residuals)
+resid2 <- data.frame(lm2$residuals)
+start <- data.frame(x$V3)
+stop <- data.frame(x$V4)
+row.names(resid1) <- x$V1
+row.names(resid2) <- x$V1
+row.names(start) <- x$V1
+row.names(stop) <- x$V1
+
+### create midpoint-rooted neighbor-joining tree from Euclidean distance matrix
+
+nj <- nj(dist(linf))
+midnj <- midpoint(nj)
+
+### use Blomberg's K to test for association between tree topology and residuals
+
+bothresids <- cbind(resid1,resid2)
+row.names(bothresids) <- x$V1
+multiPhylosignal(bothresids,midnj) ### phy. signal on lm2 residuals (p ~ 0.001), but not on lm1 residuals  (p ~ 0.159)
+
+### repeat without data from Teixeira et al. 2017 because not available paired-end
+
+nj_notex <- nj(dist(linf_notex))
+midnj_notex <- midpoint(nj_notex)
+
+d <- read.table("depths.txt", header=F)
+d_notex <- subset(d, !grepl("VL|CL|Ah", d$V1))
+
+x <- read.table("RL_SITES.txt", header=F)
+x_notex <- subset(x, !grepl("VL|CL|Ah", x$V1))
+
+### as we now have exclusively paired-end data, we can also add insert size to the linear model
+
+ins_notex <- read.table("ins_size_notex.txt", header=F)
+
+lm1_notex <- lm(x_notex$V3 ~ x_notex$V2 + d_notex$V2 + ins_notex$V2)
+lm2_notex <- lm(x_notex$V4 ~ x_notex$V2 + d_notex$V2 + ins_notex$V2)
+
+resid1_notex <- data.frame(lm1_notex$residuals)
+resid2_notex <- data.frame(lm2_notex$residuals)
+start_notex <- data.frame(x_notex$V3)
+stop_notex <- data.frame(x_notex$V4)
+row.names(resid1_notex) <- x_notex$V1
+row.names(resid2_notex) <- x_notex$V1
+row.names(start_notex) <- x_notex$V1
+row.names(stop_notex) <- x_notex$V1
+
+bothresids_notex <- cbind(resid1_notex,resid2_notex)
+row.names(bothresids_notex) <- x_notex$V1
+multiPhylosignal(bothresids_notex,midnj_notex) ### phy. signal on lm2 residuals (p ~ 0.003), but not on lm1 residuals  (p ~ 0.593)
